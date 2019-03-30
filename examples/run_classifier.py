@@ -23,6 +23,9 @@ import logging
 import os
 import random
 import sys
+import pickle as pkl
+import copy
+import pdb
 
 import numpy as np
 import torch
@@ -32,7 +35,7 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
-from pytorch_pretrained_bert.modeling import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME
+from pytorch_pretrained_bert.modeling_knli import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME
 from pytorch_pretrained_bert.tokenization import BertTokenizer
 from pytorch_pretrained_bert.optimization import BertAdam, warmup_linear
 
@@ -99,7 +102,6 @@ class DataProcessor(object):
                     line = list(unicode(cell, 'utf-8') for cell in line)
                 lines.append(line)
             return lines
-
 
 class MrpcProcessor(DataProcessor):
     """Processor for the MRPC data set (GLUE version)."""
@@ -229,11 +231,15 @@ class Sst2Processor(DataProcessor):
 
 def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer):
     """Loads a data file into a list of `InputBatch`s."""
+    # c = copy.deepcopy
 
     label_map = {label : i for i, label in enumerate(label_list)}
 
     features = []
+    pbar = tqdm(total=len(examples), desc='converting examples to features')
     for (ex_index, example) in enumerate(examples):
+        pbar.update(1)
+
         tokens_a = tokenizer.tokenize(example.text_a)
 
         tokens_b = None
@@ -273,6 +279,16 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
             tokens += tokens_b + ["[SEP]"]
             segment_ids += [1] * (len(tokens_b) + 1)
 
+        # # concept relations
+        # concept_embeddings = np.zeros((max_seq_length, max_seq_length, num_concepts), dtype = np.float32)
+        # if concept_dict is not None:
+        #     for i, t in enumerate(tokens):
+        #         for j, s in enumerate(tokens):
+        #             if j >= i:
+        #                 if t in concept_dict and s in concept_dict[t]:
+        #                     concept_embeddings[i, j, :] = concept_dict[t][s]
+        #                     concept_embeddings[j, i, :] = c(concept_embeddings[i, j, :])
+
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
         # The mask has 1 for real tokens and 0 for padding tokens. Only real
@@ -290,7 +306,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         assert len(segment_ids) == max_seq_length
 
         label_id = label_map[example.label]
-        if ex_index < 5:
+        if ex_index < 2:
             logger.info("*** Example ***")
             logger.info("guid: %s" % (example.guid))
             logger.info("tokens: %s" % " ".join(
@@ -306,6 +322,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
                               input_mask=input_mask,
                               segment_ids=segment_ids,
                               label_id=label_id))
+    pbar.close()
     return features
 
 
@@ -354,6 +371,14 @@ def main():
                         help="The output directory where the model predictions and checkpoints will be written.")
 
     ## Other parameters
+    parser.add_argument("--num_concepts",
+                        default=5,
+                        type=int,
+                        help="The number of concepts")
+    parser.add_argument("--concept_dict",
+                        default="./data/pair_features_binary.pkl",
+                        type=str,
+                        help="Where you store the wordnet concept dictionary")
     parser.add_argument("--cache_dir",
                         default="",
                         type=str,
@@ -541,9 +566,25 @@ def main():
                              warmup=args.warmup_proportion,
                              t_total=num_train_optimization_steps)
 
+    if os.path.exists(args.concept_dict):
+        print("\nLoading wordnet concept dictionary pickle file...\n")
+        with open(args.concept_dict, 'rb') as f:
+            concept_dict = pkl.load(f)
+        tmp = len(next(iter(next(iter(concept_dict.values())).values())))
+        print("There are {} of concepts\n".format(tmp))
+        if args.num_concepts != tmp:
+            import warnings
+            warnings.warn("The number of concepts does not agree with your concept_dict.\n \
+                          num_concepts has been changed to {} instead.\n".format(tmp))
+            args.num_concepts = tmp
+    else:
+        concept_dict = None
+
     global_step = 0
     nb_tr_steps = 0
     tr_loss = 0
+    c = copy.deepcopy
+
     if args.do_train:
         train_features = convert_examples_to_features(
             train_examples, label_list, args.max_seq_length, tokenizer)
@@ -551,10 +592,10 @@ def main():
         logger.info("  Num examples = %d", len(train_examples))
         logger.info("  Batch size = %d", args.train_batch_size)
         logger.info("  Num steps = %d", num_train_optimization_steps)
-        all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
-        all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
-        all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
-        all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+        all_input_ids = torch.tensor([f.input_ids for f in tqdm(train_features, desc='ids')], dtype=torch.long)
+        all_input_mask = torch.tensor([f.input_mask for f in tqdm(train_features, desc='mask')], dtype=torch.long)
+        all_segment_ids = torch.tensor([f.segment_ids for f in tqdm(train_features, desc='segment_ids')], dtype=torch.long)
+        all_label_ids = torch.tensor([f.label_id for f in tqdm(train_features, desc='label')], dtype=torch.long)
         train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_data)
@@ -568,8 +609,26 @@ def main():
             nb_tr_examples, nb_tr_steps = 0, 0
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 batch = tuple(t.to(device) for t in batch)
+                ## TODO (5)
                 input_ids, input_mask, segment_ids, label_ids = batch
-                loss = model(input_ids, segment_ids, input_mask, label_ids)
+                if args.concept_dict == None:
+                    concept_embeddings = None # reassign to None from zero embeddings
+                else:
+                    # concept relations
+                    concept_embeddings = np.zeros((input_ids.size(0), args.max_seq_length, args.max_seq_length, args.num_concepts), dtype = np.float32) # [B, T, T, num_concepts]
+                    for row_num, ids in enumerate(input_ids):
+
+                        tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())
+                        for i, t in enumerate(tokens):
+                            for j, s in enumerate(tokens):
+                                if j >= i:
+                                    if t in concept_dict and s in concept_dict[t]:
+                                        concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
+                                        concept_embeddings[row_num, j, i, :] = concept_dict[t][s]
+                    concept_embeddings = torch.tensor(concept_embeddings, dtype=torch.float32)
+                    concept_embeddings = concept_embeddings.to(device)
+
+                loss = model(input_ids, segment_ids, input_mask, concept_embeddings, label_ids)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.gradient_accumulation_steps > 1:
@@ -603,7 +662,7 @@ def main():
             f.write(model_to_save.config.to_json_string())
 
         # Load a trained model and config that you have fine-tuned
-        config = BertConfig(output_config_file)
+        config = BertConfig(vocab_size_or_config_json_file=output_config_file, num_concepts=args.num_concepts)
         model = BertForSequenceClassification(config, num_labels=num_labels)
         model.load_state_dict(torch.load(output_model_file))
     else:
@@ -634,11 +693,26 @@ def main():
             input_ids = input_ids.to(device)
             input_mask = input_mask.to(device)
             segment_ids = segment_ids.to(device)
+            if args.concept_dict == None:
+                concept_embeddings = None # reassign to None from zero embeddings
+            else:
+                # concept relations
+                concept_embeddings = np.zeros((input_ids.size(0), args.max_seq_length, args.max_seq_length, args.num_concepts), dtype = np.float32) # [B, T, T, num_concepts]
+                for row_num, ids in enumerate(input_ids):
+                    tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())
+                    for i, t in enumerate(tokens):
+                        for j, s in enumerate(tokens):
+                            if j >= i:
+                                if t in concept_dict and s in concept_dict[t]:
+                                    concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
+                                    concept_embeddings[row_num, j, i, :] = concept_dict[t][s]
+                concept_embeddings = torch.tensor(concept_embeddings, dtype=torch.float32)
+                concept_embeddings = concept_embeddings.to(device)
             label_ids = label_ids.to(device)
 
             with torch.no_grad():
-                tmp_eval_loss = model(input_ids, segment_ids, input_mask, label_ids)
-                logits = model(input_ids, segment_ids, input_mask)
+                tmp_eval_loss = model(input_ids, segment_ids, input_mask, concept_embeddings, label_ids)
+                logits = model(input_ids, segment_ids, input_mask, concept_embeddings)
 
             logits = logits.detach().cpu().numpy()
             label_ids = label_ids.to('cpu').numpy()
