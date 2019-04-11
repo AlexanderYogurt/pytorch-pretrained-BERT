@@ -136,6 +136,39 @@ class MrpcProcessor(DataProcessor):
         return examples
 
 
+class SnliProcessor(DataProcessor):
+    """Processor for the SNLI data set (GLUE version)."""
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev_matched.tsv")),
+            "dev_matched")
+
+    def get_labels(self):
+        """See base class."""
+        return ["contradiction", "entailment", "neutral"]
+
+    def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, line[0])
+            text_a = line[7]
+            text_b = line[8]
+            label = line[-1]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        return examples
+
+
 class MnliProcessor(DataProcessor):
     """Processor for the MultiNLI data set (GLUE version)."""
 
@@ -455,6 +488,7 @@ def main():
 
     processors = {
         "cola": ColaProcessor,
+        "snli": SnliProcessor,
         "mnli": MnliProcessor,
         "mrpc": MrpcProcessor,
         "sst-2": Sst2Processor,
@@ -463,6 +497,7 @@ def main():
     num_labels_task = {
         "cola": 2,
         "sst-2": 2,
+        "snli": 3,
         "mnli": 3,
         "mrpc": 2,
     }
@@ -495,7 +530,7 @@ def main():
         raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train:
-        raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
+        print("WARNING: Output directory ({}) already exists and is not empty.".format(args.output_dir))
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
@@ -655,9 +690,9 @@ def main():
 
         # Save a trained model and the associated configuration
         model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-        output_model_file = os.path.join(args.output_dir, WEIGHTS_NAME)
+        output_model_file = os.path.join(args.output_dir, args.task_name + "_" + WEIGHTS_NAME)
         torch.save(model_to_save.state_dict(), output_model_file)
-        output_config_file = os.path.join(args.output_dir, CONFIG_NAME)
+        output_config_file = os.path.join(args.output_dir, args.task_name + "_" + CONFIG_NAME)
         with open(output_config_file, 'w') as f:
             f.write(model_to_save.config.to_json_string())
 
@@ -666,7 +701,17 @@ def main():
         model = BertForSequenceClassification(config, num_labels=num_labels)
         model.load_state_dict(torch.load(output_model_file))
     else:
-        model = BertForSequenceClassification.from_pretrained(args.bert_model, num_labels=num_labels)
+        to_load_model_file = os.path.join(args.output_dir, args.task_name + "_" + WEIGHTS_NAME) # saved .bin file
+        to_load_config_file = os.path.join(args.output_dir, args.task_name + "_" + CONFIG_NAME)
+        if os.path.isfile(to_load_model_file) and os.path.isfile(to_load_config_file):
+            print("\n----------------Loading tuned model for evaluation----------------\n")
+            # Load a trained model and config that you have fine-tuned
+            config = BertConfig(vocab_size_or_config_json_file=to_load_config_file, num_concepts=args.num_concepts)
+            model = BertForSequenceClassification(config, num_labels=num_labels)
+            model.load_state_dict(torch.load(to_load_model_file))
+        else:
+            print("\n----------------Loading pretrained model for evaluation----------------\n")
+            model = BertForSequenceClassification.from_pretrained(args.bert_model, num_labels=num_labels)
     model.to(device)
 
     if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
