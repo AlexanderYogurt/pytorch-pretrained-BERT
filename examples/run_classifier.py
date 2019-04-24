@@ -623,6 +623,7 @@ def main():
                           num_concepts has been changed to {} instead.\n".format(tmp))
             args.num_concepts = tmp
     else:
+        print("Not using concept embeddings...")
         concept_dict = None
 
     global_step = 0
@@ -655,7 +656,7 @@ def main():
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 batch = tuple(t.to(device) for t in batch)
                 input_ids, input_mask, segment_ids, label_ids = batch
-                if args.concept_dict == None:
+                if concept_dict == None:
                     concept_embeddings = None # reassign to None from zero embeddings
                 else:
                     # concept relations
