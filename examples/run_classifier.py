@@ -35,7 +35,7 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
-from pytorch_pretrained_bert.modeling_knli import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME
+# from pytorch_pretrained_bert.modeling_knli import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME
 from pytorch_pretrained_bert.tokenization import BertTokenizer
 from pytorch_pretrained_bert.optimization import BertAdam, warmup_linear
 
@@ -147,7 +147,7 @@ class SnliProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "dev_matched.tsv")),
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")),
             "dev_matched")
 
     def get_labels(self):
@@ -404,6 +404,9 @@ def main():
                         help="The output directory where the model predictions and checkpoints will be written.")
 
     ## Other parameters
+    parser.add_argument("--add_concepts",
+                        action='store_true',
+                        help="Whether to use thr concept embeddings.")
     parser.add_argument("--num_concepts",
                         default=5,
                         type=int,
@@ -428,6 +431,10 @@ def main():
     parser.add_argument("--do_eval",
                         action='store_true',
                         help="Whether to run eval on the dev set.")
+    parser.add_argument("--description",
+                        default="",
+                        type=str,
+                        help="The description for saved model config.")
     parser.add_argument("--do_lower_case",
                         action='store_true',
                         help="Set this flag if you are using an uncased model.")
@@ -461,7 +468,7 @@ def main():
                         help="local_rank for distributed training on gpus")
     parser.add_argument('--seed',
                         type=int,
-                        default=42,
+                        default=822,
                         help="random seed for initialization")
     parser.add_argument('--gradient_accumulation_steps',
                         type=int,
@@ -479,6 +486,9 @@ def main():
     parser.add_argument('--server_port', type=str, default='', help="Can be used for distant debugging.")
     args = parser.parse_args()
 
+    
+    from pytorch_pretrained_bert.modeling_knli import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME
+    
     if args.server_ip and args.server_port:
         # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
         import ptvsd
@@ -644,7 +654,6 @@ def main():
             nb_tr_examples, nb_tr_steps = 0, 0
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 batch = tuple(t.to(device) for t in batch)
-                ## TODO (5)
                 input_ids, input_mask, segment_ids, label_ids = batch
                 if args.concept_dict == None:
                     concept_embeddings = None # reassign to None from zero embeddings
@@ -690,9 +699,9 @@ def main():
 
         # Save a trained model and the associated configuration
         model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-        output_model_file = os.path.join(args.output_dir, args.task_name + "_" + WEIGHTS_NAME)
+        output_model_file = os.path.join(args.output_dir, args.task_name + "_" + args.description + "_" + WEIGHTS_NAME)
         torch.save(model_to_save.state_dict(), output_model_file)
-        output_config_file = os.path.join(args.output_dir, args.task_name + "_" + CONFIG_NAME)
+        output_config_file = os.path.join(args.output_dir, args.task_name + "_" + args.description + "_" + CONFIG_NAME)
         with open(output_config_file, 'w') as f:
             f.write(model_to_save.config.to_json_string())
 
@@ -701,8 +710,8 @@ def main():
         model = BertForSequenceClassification(config, num_labels=num_labels)
         model.load_state_dict(torch.load(output_model_file))
     else:
-        to_load_model_file = os.path.join(args.output_dir, args.task_name + "_" + WEIGHTS_NAME) # saved .bin file
-        to_load_config_file = os.path.join(args.output_dir, args.task_name + "_" + CONFIG_NAME)
+        to_load_model_file = os.path.join(args.output_dir, args.task_name + "_" + args.description + "_" + WEIGHTS_NAME) # saved .bin file
+        to_load_config_file = os.path.join(args.output_dir, args.task_name + "_" + args.description + "_" + CONFIG_NAME)
         if os.path.isfile(to_load_model_file) and os.path.isfile(to_load_config_file):
             print("\n----------------Loading tuned model for evaluation----------------\n")
             # Load a trained model and config that you have fine-tuned
