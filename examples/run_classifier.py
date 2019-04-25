@@ -748,7 +748,7 @@ def main():
             input_ids = input_ids.to(device)
             input_mask = input_mask.to(device)
             segment_ids = segment_ids.to(device)
-            if args.concept_dict == None:
+            if concept_dict == None:
                 concept_embeddings = None # reassign to None from zero embeddings
             else:
                 # concept relations
