@@ -623,7 +623,7 @@ def main():
                           num_concepts has been changed to {} instead.\n".format(tmp))
             args.num_concepts = tmp
     else:
-        print("Not using concept embeddings...")
+        print("\n------------------Not using concept embeddings------------------")
         concept_dict = None
 
     global_step = 0
