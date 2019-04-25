@@ -147,7 +147,7 @@ class SnliProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "advesarial_test.tsv")),
+            self._read_tsv(os.path.join(data_dir, "train.tsv")),
             "dev")
 
     def get_labels(self):
@@ -339,7 +339,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         assert len(segment_ids) == max_seq_length
 
         label_id = label_map[example.label]
-        if ex_index < 2:
+        if ex_index < 10:
             logger.info("*** Example ***")
             logger.info("guid: %s" % (example.guid))
             logger.info("tokens: %s" % " ".join(
