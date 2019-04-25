@@ -612,7 +612,7 @@ def main():
                              t_total=num_train_optimization_steps)
 
     if os.path.exists(args.concept_dict):
-        print("\nLoading wordnet concept dictionary pickle file...\n")
+        print("\n------------------Loading wordnet concept dictionary pickle file------------------\n")
         with open(args.concept_dict, 'rb') as f:
             concept_dict = pkl.load(f)
         tmp = len(next(iter(next(iter(concept_dict.values())).values())))
