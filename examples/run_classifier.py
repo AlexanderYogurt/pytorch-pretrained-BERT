@@ -744,6 +744,7 @@ def main():
         eval_loss, eval_accuracy = 0, 0
         nb_eval_steps, nb_eval_examples = 0, 0
         eval_outputs, eval_labels = [], []
+        concept_count = 0
 
         for input_ids, input_mask, segment_ids, label_ids in tqdm(eval_dataloader, desc="Evaluating"):
             input_ids = input_ids.to(device)
@@ -754,6 +755,7 @@ def main():
             else:
                 # concept relations
                 concept_embeddings = np.zeros((input_ids.size(0), args.max_seq_length, args.max_seq_length, args.num_concepts), dtype = np.float32) # [B, T, T, num_concepts]
+
                 for row_num, ids in enumerate(input_ids):
                     tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())
                     for i, t in enumerate(tokens):
@@ -761,7 +763,11 @@ def main():
                             if j >= i:
                                 if t in concept_dict and s in concept_dict[t]:
                                     concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
-                                    concept_embeddings[row_num, j, i, :] = concept_dict[t][s]
+                                    concept_count += 1
+                                if s in concept_dict and t in concept_dict[s]:
+                                    concept_embeddings[row_num, j, i, :] = concept_dict[s][t]
+                                    concept_count += 1
+
                 concept_embeddings = torch.tensor(concept_embeddings, dtype=torch.float32)
                 concept_embeddings = concept_embeddings.to(device)
             label_ids = label_ids.to(device)
@@ -788,11 +794,13 @@ def main():
         from sklearn.metrics import precision_score
         precision_of_each_class = precision_score(eval_labels, eval_outputs, average=None)
         loss = tr_loss/nb_tr_steps if args.do_train else None
+        avg_concepts = concept_count / nb_eval_examples
         result = {'eval_loss': eval_loss,
                   'eval_accuracy': eval_accuracy,
                   'precision_of_each_class': precision_of_each_class,
                   'global_step': global_step,
-                  'loss': loss}
+                  'loss': loss,
+                  'avg_concepts': avg_concepts}
 
         output_eval_file = os.path.join(args.output_dir, "eval_results.txt")
         with open(output_eval_file, "w") as writer:
