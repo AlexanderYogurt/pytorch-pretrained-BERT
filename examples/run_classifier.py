@@ -147,7 +147,7 @@ class SnliProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "train.tsv")),
+            self._read_tsv(os.path.join(data_dir, "advesarial_test.tsv")),
             "dev")
 
     def get_labels(self):
@@ -406,7 +406,7 @@ def main():
     ## Other parameters
     parser.add_argument("--add_concepts",
                         action='store_true',
-                        help="Whether to use thr concept embeddings.")
+                        help="Whether to use the concept embeddings.")
     parser.add_argument("--num_concepts",
                         default=5,
                         type=int,
