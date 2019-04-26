@@ -743,6 +743,7 @@ def main():
         model.eval()
         eval_loss, eval_accuracy = 0, 0
         nb_eval_steps, nb_eval_examples = 0, 0
+        eval_outputs, eval_labels = [], []
 
         for input_ids, input_mask, segment_ids, label_ids in tqdm(eval_dataloader, desc="Evaluating"):
             input_ids = input_ids.to(device)
@@ -773,6 +774,9 @@ def main():
             label_ids = label_ids.to('cpu').numpy()
             tmp_eval_accuracy = accuracy(logits, label_ids)
 
+            eval_outputs.extend(list(np.argmax(logits, axis=1)))
+            eval_labels.extend(list(label_ids))
+
             eval_loss += tmp_eval_loss.mean().item()
             eval_accuracy += tmp_eval_accuracy
 
@@ -781,9 +785,12 @@ def main():
 
         eval_loss = eval_loss / nb_eval_steps
         eval_accuracy = eval_accuracy / nb_eval_examples
+        from sklearn.metrics import precision_score
+        precision_of_each_class = precision_score(eval_labels, eval_outputs, average=None)
         loss = tr_loss/nb_tr_steps if args.do_train else None
         result = {'eval_loss': eval_loss,
                   'eval_accuracy': eval_accuracy,
+                  'precision_of_each_class': precision_of_each_class,
                   'global_step': global_step,
                   'loss': loss}
 
