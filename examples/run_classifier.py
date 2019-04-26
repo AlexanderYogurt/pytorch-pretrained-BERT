@@ -147,7 +147,7 @@ class SnliProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "advesarial_test.tsv")),
+            self._read_tsv(os.path.join(data_dir, "dev.tsv")),
             "dev")
 
     def get_labels(self):
@@ -757,16 +757,21 @@ def main():
                 concept_embeddings = np.zeros((input_ids.size(0), args.max_seq_length, args.max_seq_length, args.num_concepts), dtype = np.float32) # [B, T, T, num_concepts]
 
                 for row_num, ids in enumerate(input_ids):
+                    meaningful_length = int(sum(input_mask[row_num]))
                     tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())
                     for i, t in enumerate(tokens):
+                        if i >= meaningful_length:
+                            break
                         for j, s in enumerate(tokens):
+                            if j >= meaningful_length:
+                                break
                             if j >= i:
                                 if t in concept_dict and s in concept_dict[t]:
                                     concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
-                                    concept_count += 1
+                                    if sum(concept_dict[t][s]) > 0:
+                                        concept_count += 1
                                 if s in concept_dict and t in concept_dict[s]:
                                     concept_embeddings[row_num, j, i, :] = concept_dict[s][t]
-                                    concept_count += 1
 
                 concept_embeddings = torch.tensor(concept_embeddings, dtype=torch.float32)
                 concept_embeddings = concept_embeddings.to(device)
