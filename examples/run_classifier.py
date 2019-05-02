@@ -389,7 +389,7 @@ def main():
                         required=True,
                         help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
     parser.add_argument("--bert_model", default=None, type=str, required=True,
-                        help="Bert pre-trained model selected in the list: scratch, bert-base-uncased, "
+                        help="Bert pre-trained model selected in the list: bert-base-uncased, "
                         "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
                         "bert-base-multilingual-cased, bert-base-chinese.")
     parser.add_argument("--task_name",
@@ -404,6 +404,9 @@ def main():
                         help="The output directory where the model predictions and checkpoints will be written.")
 
     ## Other parameters
+    parser.add_argument("--from_scratch",
+                        action='store_true',
+                        help="Whether to train model from scratch.")
     parser.add_argument("--num_concepts",
                         default=5,
                         type=int,
@@ -559,7 +562,7 @@ def main():
             num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
     # Prepare model
-    if args.bert_model == 'scratch':
+    if args.from_scratch:
         print("\nTrain Bert from scratch...\n")
         config = BertConfig(vocab_size_or_config_json_file=28996, num_concepts=args.num_concepts)
         model = BertForSequenceClassification(config, num_labels=num_labels)
