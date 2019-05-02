@@ -34,8 +34,8 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
+from pytorch_pretrained_bert.modeling_knli import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
-# from pytorch_pretrained_bert.modeling_knli import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME
 from pytorch_pretrained_bert.tokenization import BertTokenizer
 from pytorch_pretrained_bert.optimization import BertAdam, warmup_linear
 
@@ -389,7 +389,7 @@ def main():
                         required=True,
                         help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
     parser.add_argument("--bert_model", default=None, type=str, required=True,
-                        help="Bert pre-trained model selected in the list: bert-base-uncased, "
+                        help="Bert pre-trained model selected in the list: scratch, bert-base-uncased, "
                         "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
                         "bert-base-multilingual-cased, bert-base-chinese.")
     parser.add_argument("--task_name",
@@ -404,9 +404,6 @@ def main():
                         help="The output directory where the model predictions and checkpoints will be written.")
 
     ## Other parameters
-    parser.add_argument("--add_concepts",
-                        action='store_true',
-                        help="Whether to use the concept embeddings.")
     parser.add_argument("--num_concepts",
                         default=5,
                         type=int,
@@ -485,9 +482,6 @@ def main():
     parser.add_argument('--server_ip', type=str, default='', help="Can be used for distant debugging.")
     parser.add_argument('--server_port', type=str, default='', help="Can be used for distant debugging.")
     args = parser.parse_args()
-
-    
-    from pytorch_pretrained_bert.modeling_knli import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME
     
     if args.server_ip and args.server_port:
         # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
@@ -565,10 +559,16 @@ def main():
             num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
     # Prepare model
-    cache_dir = args.cache_dir if args.cache_dir else os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(args.local_rank))
-    model = BertForSequenceClassification.from_pretrained(args.bert_model,
-              cache_dir=cache_dir,
-              num_labels = num_labels)
+    if args.bert_model == 'scratch':
+        print("\nTrain Bert from scratch...\n")
+        config = BertConfig(vocab_size_or_config_json_file=BertConfig, num_concepts=args.num_concepts)
+        model = BertForSequenceClassification(config, num_labels=num_labels)
+    else:
+        print("\nLoading pretrained Bert model {}\n".format(args.bert_model))
+        cache_dir = args.cache_dir if args.cache_dir else os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(args.local_rank))
+        model = BertForSequenceClassification.from_pretrained(args.bert_model,
+                  cache_dir=cache_dir,
+                  num_labels = num_labels)
     if args.fp16:
         model.half()
     model.to(device)
