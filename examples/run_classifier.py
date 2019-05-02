@@ -561,8 +561,8 @@ def main():
     # Prepare model
     if args.bert_model == 'scratch':
         print("\nTrain Bert from scratch...\n")
-        config = BertConfig(vocab_size_or_config_json_file=BertConfig, num_concepts=args.num_concepts)
-        model = BertForSequenceClassification(config, num_labels=num_labels)
+        config = BertConfig(vocab_size_or_config_json_file=28996, num_concepts=args.num_concepts)
+        model = BertForSequenceClassification(BertConfig, num_labels=num_labels)
     else:
         print("\nLoading pretrained Bert model {}\n".format(args.bert_model))
         cache_dir = args.cache_dir if args.cache_dir else os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(args.local_rank))
