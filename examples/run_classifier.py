@@ -408,7 +408,7 @@ def main():
                         action='store_true',
                         help="Whether to train model from scratch.")
     parser.add_argument("--print_out",
-                        action'store_true',
+                        action='store_true',
                         help="Whether to print out all the eval examples.")
     parser.add_argument("--num_concepts",
                         default=5,
