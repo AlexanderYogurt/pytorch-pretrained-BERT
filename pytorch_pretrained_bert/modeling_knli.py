@@ -307,7 +307,7 @@ class BertSelfAttention(nn.Module):
         x = x.view(*new_x_shape) # [B, T, T, H, d_k]
         return x.permute(0, 3, 1, 2, 4) # [B, H, T, T, d_k]
 
-    def concept_attention(self, query, key, value, hQ, hK, hV, mask=None, dropout=None):
+    def concept_attention(self, query, key, value, hQ, hK, hV=None, attention_mask=None):
         '''
          Compute concept augmented dot product
          query, key, value: [B, H, T, d_k]
@@ -322,25 +322,25 @@ class BertSelfAttention(nn.Module):
         q_plus_hQ = q + hQ # [B, H, T, T, d_k]
         k = key.unsqueeze(3) # [B, H, T, 1, d_k]
         k_plus_hK = (k + hK).transpose(2, 3) # [B, H, T, T, d_k]
-        scores = torch.sum(q_plus_hQ * k_plus_hK, dim=-1, keepdim=False) / math.sqrt(self.attention_head_size)# [B, H, T, T]
+        attention_scores = torch.sum(q_plus_hQ.mul(k_plus_hK), dim=-1, keepdim=False) / math.sqrt(self.attention_head_size)# [B, H, T, T]
 
-        if mask is not None:
-            scores = scores + mask # [B, H, T, T]
-        p_attn = F.softmax(scores, dim = -1) # [B, H, T, T]
+        if attention_mask is not None:
+            attention_scores = attention_scores + attention_mask # [B, H, T, T]
+        attention_probs = nn.Softmax(dim=-1)(attention_scores) # [B, H, T, T]
 
         # apply dropout
-        if dropout is not None:
-            p_attn = dropout(p_attn)
+        attention_probs = self.dropout(attention_probs)
 
-        # calculate aligned vectors
-        v = value.unsqueeze(3) + hV # [B, H, T2, T1, d_k]
-        v = v.transpose(2, 3) # [B, H, T1, T2, d_k]
+        if hV is not None:
+            # calculate aligned vectors
+            v = value.unsqueeze(3) + hV # [B, H, T, T, d_k]
+            v = v.transpose(2, 3) # [B, H, T, T, d_k]
+            attention_probs = attention_probs.unsqueeze(4) # [B, H, T, T, 1]
+            context_layer = torch.sum(attention_probs * v, dim=3, keepdim=False) # [B, H, T, d_k]
+        else:
+            context_layer = torch.matmul(attention_probs, value) # [B, H, T, d_k]
 
-        p_attn = p_attn.unsqueeze(4) # [B, H, T1, T2, 1]
-
-        query_align = torch.sum(p_attn * v, dim=3, keepdim=False) # [B, H, T1, d_k]
-
-        return query_align
+        return context_layer
 
     def forward(self, hidden_states, attention_mask, concept_embeddings=None):
         # concept_embeddings: [B, T, T, num_concepts]
@@ -358,14 +358,15 @@ class BertSelfAttention(nn.Module):
             concept_embeddings = self.concept_encoding(concept_embeddings) # [B, T, T, D]
             mixed_hQ_layer = self.query(concept_embeddings)
             mixed_hK_layer = self.key(concept_embeddings)
-            mixed_hV_layer = self.value(concept_embeddings)
+            # mixed_hV_layer = self.value(concept_embeddings)
 
             hQ_layer = self.transpose_for_concepts(mixed_hQ_layer)
             hK_layer = self.transpose_for_concepts(mixed_hK_layer)
-            hV_layer = self.transpose_for_concepts(mixed_hV_layer)
+            hV_layer = None
+            # hV_layer = self.transpose_for_concepts(mixed_hV_layer)
 
             # apply self-attention with concept embeddings
-            context_layer = self.concept_attention(query_layer, key_layer, value_layer, hQ_layer, hK_layer, hV_layer, attention_mask, self.dropout)
+            context_layer = self.concept_attention(query_layer, key_layer, value_layer, hQ_layer, hK_layer, hV_layer, attention_mask)
         else:
             # Take the dot product between "query" and "key" to get the raw attention scores.
             attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
