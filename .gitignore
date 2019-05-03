@@ -1,7 +1,7 @@
 # Initially taken from Github's Python gitignore file
 
 # project
-data/
+data/*
 output/
 
 # Byte-compiled / optimized / DLL files
