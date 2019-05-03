@@ -1,7 +1,8 @@
 # Initially taken from Github's Python gitignore file
 
 # project
-data/*
+data/*/
+data/pair_features_binary.pkl
 output/
 
 # Byte-compiled / optimized / DLL files
