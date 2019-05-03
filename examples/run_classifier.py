@@ -407,6 +407,9 @@ def main():
     parser.add_argument("--from_scratch",
                         action='store_true',
                         help="Whether to train model from scratch.")
+    parser.add_argument("--print_out",
+                        action'store_true',
+                        help="Whether to print out all the eval examples.")
     parser.add_argument("--num_concepts",
                         default=5,
                         type=int,
@@ -790,6 +793,9 @@ def main():
 
             eval_outputs.extend(list(np.argmax(logits, axis=1)))
             eval_labels.extend(list(label_ids))
+
+            if args.print_out:
+                print("\nPredicted label: {} ... true label: {}\n".format(eval_outputs, eval_labels))
 
             eval_loss += tmp_eval_loss.mean().item()
             eval_accuracy += tmp_eval_accuracy
