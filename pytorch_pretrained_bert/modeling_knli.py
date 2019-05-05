@@ -35,8 +35,6 @@ from torch.nn import CrossEntropyLoss
 
 from .file_utils import cached_path
 
-import pdb
-
 logger = logging.getLogger(__name__)
 
 PRETRAINED_MODEL_ARCHIVE_MAP = {
