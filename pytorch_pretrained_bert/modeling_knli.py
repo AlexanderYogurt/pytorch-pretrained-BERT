@@ -35,6 +35,8 @@ from torch.nn import CrossEntropyLoss
 
 from .file_utils import cached_path
 
+import pdb
+
 logger = logging.getLogger(__name__)
 
 PRETRAINED_MODEL_ARCHIVE_MAP = {
@@ -389,6 +391,7 @@ class BertSelfAttention(nn.Module):
                 context_layer = self.concept_attention(query_layer, key_layer, value_layer, hQ_layer, attention_mask)
             else:
                 context_layer = self.easy_concept_attention(query_layer, key_layer, value_layer, hQ_layer, attention_mask)
+                pdb.set_trace()
         else:
             # Take the dot product between "query" and "key" to get the raw attention scores.
             attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
