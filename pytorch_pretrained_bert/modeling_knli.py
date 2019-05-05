@@ -381,9 +381,7 @@ class BertSelfAttention(nn.Module):
         if concept_embeddings is not None:
             # add concept embedding
             concept_embeddings = self.concept_encoding(concept_embeddings) # [B, T, T, D]
-
             mixed_hQ_layer = self.query(concept_embeddings)
-
             hQ_layer = self.transpose_for_concepts(mixed_hQ_layer)
 
             # apply self-attention with concept embeddings
@@ -391,7 +389,6 @@ class BertSelfAttention(nn.Module):
                 context_layer = self.concept_attention(query_layer, key_layer, value_layer, hQ_layer, attention_mask)
             else:
                 context_layer = self.easy_concept_attention(query_layer, key_layer, value_layer, hQ_layer, attention_mask)
-                pdb.set_trace()
         else:
             # Take the dot product between "query" and "key" to get the raw attention scores.
             attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
