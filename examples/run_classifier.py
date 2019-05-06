@@ -766,6 +766,7 @@ def main():
                     meaningful_length = int(sum(input_mask[row_num]))
                     tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())
                     for i, t in enumerate(tokens):
+                        flag = True
                         if i >= meaningful_length:
                             break
                         for j, s in enumerate(tokens):
@@ -774,8 +775,9 @@ def main():
                             if j >= i:
                                 if t in concept_dict and s in concept_dict[t]:
                                     concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
-                                    if sum(concept_dict[t][s]) > 0:
+                                    if flag and sum(concept_dict[t][s]) > 0:
                                         concept_count += 1
+                                        flag = False
                                 if s in concept_dict and t in concept_dict[s]:
                                     concept_embeddings[row_num, j, i, :] = concept_dict[s][t]
 
