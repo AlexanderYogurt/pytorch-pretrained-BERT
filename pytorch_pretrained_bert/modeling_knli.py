@@ -293,7 +293,7 @@ class BertSelfAttention(nn.Module):
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
-        self.concept = nn.Linear(self.attention_head_size, 1, bias=False)
+        self.concept_h = nn.Linear(config.hidden_size, 1, bias=False)
 
         self.concept_encoding = ConceptEncoding(config.hidden_size, config.num_concepts)
 
@@ -336,30 +336,37 @@ class BertSelfAttention(nn.Module):
 
         return context_layer
 
-    def easy_concept_attention(self, query, key, value, hQ, attention_mask=None):
+    def easy_concept_attention(self, query, key, value, concept_embeddings, attention_mask=None):
         '''
          Compute concept augmented dot product
          query, key, value: [B, H, T, d_k]
-         h: [B, H, T, T, d_k]
+         concept_embeddings: [B, T, T, D]
          mask: [B, 1, 1, T]
         '''
         b_size, heads, T, d_k = query.size()
 
+        # calculate vanilla attention scores
         attention_scores = torch.matmul(query, key.transpose(-1, -2)) # [B, H, T, T]
 
         # add concept embedding function
-        concept_scores = self.concept(hQ).squeeze(-1) # [B, H, T, T]
+        concept_scores = self.concept_h(concept_embeddings).squeeze(-1).unsqueeze(1) # [B, 1, T, T]
 
-        # update attention
-        attention_scores = attention_scores + concept_scores
+        # update attention (same updates for all the heads)
+        attention_scores = attention_scores + concept_scores # [B, H, T, T]
 
-        if attention_mask is not None:
-            attention_scores = attention_scores + attention_mask # [B, H, T, T]
+        # normalize
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size) # [B, H, T, T]
+
+        # apply mask
+        attention_scores = attention_scores + attention_mask # [B, H, T, T]
+
+        # Normalize the attention scores to probabilities.
         attention_probs = nn.Softmax(dim=-1)(attention_scores) # [B, H, T, T]
 
         # apply dropout
         attention_probs = self.dropout(attention_probs)
 
+        # final output
         context_layer = torch.matmul(attention_probs, value) # [B, H, T, d_k]
 
         return context_layer
@@ -377,16 +384,19 @@ class BertSelfAttention(nn.Module):
         value_layer = self.transpose_for_scores(mixed_value_layer)
 
         if concept_embeddings is not None:
-            # add concept embedding
-            concept_embeddings = self.concept_encoding(concept_embeddings) # [B, T, T, D]
-            mixed_hQ_layer = self.query(concept_embeddings)
-            hQ_layer = self.transpose_for_concepts(mixed_hQ_layer)
 
             # apply self-attention with concept embeddings
-            if not easy_concept:
-                context_layer = self.concept_attention(query_layer, key_layer, value_layer, hQ_layer, attention_mask)
+            if easy_concept:
+                # add easy concept embedding
+                concept_embeddings = self.concept_encoding(concept_embeddings) # [B, T, T, D]
+                context_layer = self.easy_concept_attention(query_layer, key_layer, value_layer, concept_embeddings, attention_mask)
             else:
-                context_layer = self.easy_concept_attention(query_layer, key_layer, value_layer, hQ_layer, attention_mask)
+                # add concept embedding
+                concept_embeddings = self.concept_encoding(concept_embeddings) # [B, T, T, D]
+                # multi-head
+                mixed_hQ_layer = self.query(concept_embeddings)
+                hQ_layer = self.transpose_for_concepts(mixed_hQ_layer)
+                context_layer = self.concept_attention(query_layer, key_layer, value_layer, hQ_layer, attention_mask)
         else:
             # Take the dot product between "query" and "key" to get the raw attention scores.
             attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
