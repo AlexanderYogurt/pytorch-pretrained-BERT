@@ -309,7 +309,7 @@ class BertSelfAttention(nn.Module):
         x = x.view(*new_x_shape) # [B, T, T, H, d_k]
         return x.permute(0, 3, 1, 2, 4) # [B, H, T, T, d_k]
 
-    def concept_attention(self, query, key, value, hQ, attention_mask=None):
+    def concept_attention(self, query, key, value, hQ, attention_mask):
         '''
          Compute concept augmented dot product
          query, key, value: [B, H, T, d_k]
@@ -325,8 +325,8 @@ class BertSelfAttention(nn.Module):
         k = key.unsqueeze(2) # [B, H, 1, T, d_k]
         attention_scores = torch.sum(q_plus_hQ * k, dim=-1, keepdim=False) / math.sqrt(self.attention_head_size)# [B, H, T, T]
 
-        if attention_mask is not None:
-            attention_scores = attention_scores + attention_mask # [B, H, T, T]
+        # add mask
+        attention_scores = attention_scores + attention_mask # [B, H, T, T]
         attention_probs = nn.Softmax(dim=-1)(attention_scores) # [B, H, T, T]
 
         # apply dropout
@@ -336,7 +336,7 @@ class BertSelfAttention(nn.Module):
 
         return context_layer
 
-    def easy_concept_attention(self, query, key, value, concept_embeddings, attention_mask=None):
+    def easy_concept_attention(self, query, key, value, concept_embeddings, attention_mask):
         '''
          Compute concept augmented dot product
          query, key, value: [B, H, T, d_k]
@@ -371,7 +371,7 @@ class BertSelfAttention(nn.Module):
 
         return context_layer
 
-    def forward(self, hidden_states, attention_mask, concept_embeddings=None, easy_concept=True):
+    def forward(self, hidden_states, attention_mask, concept_embeddings=None, easy_concept=False):
         # concept_embeddings: [B, T, T, num_concepts]
         # hidden_states: [B, T, D]
         # attention_mask: 
