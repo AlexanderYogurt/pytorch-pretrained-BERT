@@ -293,7 +293,10 @@ class BertSelfAttention(nn.Module):
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
-        self.concept_h = nn.Linear(config.hidden_size, 1, bias=False)
+        self.concept_h = nn.Sequential(
+                            nn.Linear(config.hidden_size, 1),
+                            nn.Sigmoid(),
+                         )
 
         self.concept_encoding = ConceptEncoding(config.hidden_size, config.num_concepts)
 
@@ -347,15 +350,13 @@ class BertSelfAttention(nn.Module):
 
         # calculate vanilla attention scores
         attention_scores = torch.matmul(query, key.transpose(-1, -2)) # [B, H, T, T]
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size) # [B, H, T, T]
 
         # add concept embedding function
         concept_scores = self.concept_h(concept_embeddings).squeeze(-1).unsqueeze(1) # [B, 1, T, T]
 
         # update attention (same updates for all the heads)
         attention_scores = attention_scores + concept_scores # [B, H, T, T]
-
-        # normalize
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size) # [B, H, T, T]
 
         # apply mask
         attention_scores = attention_scores + attention_mask # [B, H, T, T]
@@ -371,7 +372,7 @@ class BertSelfAttention(nn.Module):
 
         return context_layer
 
-    def forward(self, hidden_states, attention_mask, concept_embeddings=None, easy_concept=False):
+    def forward(self, hidden_states, attention_mask, concept_embeddings, easy_concept):
         # concept_embeddings: [B, T, T, num_concepts]
         # hidden_states: [B, T, D]
         # attention_mask: 
@@ -439,8 +440,8 @@ class BertAttention(nn.Module):
         self.self = BertSelfAttention(config)
         self.output = BertSelfOutput(config)
 
-    def forward(self, input_tensor, attention_mask, concept_embeddings):
-        self_output = self.self(input_tensor, attention_mask, concept_embeddings)
+    def forward(self, input_tensor, attention_mask, concept_embeddings, easy_concept):
+        self_output = self.self(input_tensor, attention_mask, concept_embeddings, easy_concept)
         attention_output = self.output(self_output, input_tensor)
         return attention_output
 
@@ -481,8 +482,8 @@ class BertLayer(nn.Module):
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
 
-    def forward(self, hidden_states, attention_mask, concept_embeddings):
-        attention_output = self.attention(hidden_states, attention_mask, concept_embeddings)
+    def forward(self, hidden_states, attention_mask, concept_embeddings, easy_concept):
+        attention_output = self.attention(hidden_states, attention_mask, concept_embeddings, easy_concept)
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
@@ -494,10 +495,10 @@ class BertEncoder(nn.Module):
         layer = BertLayer(config)
         self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask, concept_embeddings, output_all_encoded_layers=True):
+    def forward(self, hidden_states, attention_mask, concept_embeddings, easy_concept, output_all_encoded_layers=True):
         all_encoder_layers = []
         for layer_module in self.layer:
-            hidden_states = layer_module(hidden_states, attention_mask, concept_embeddings)
+            hidden_states = layer_module(hidden_states, attention_mask, concept_embeddings, easy_concept)
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
         if not output_all_encoded_layers:
@@ -791,7 +792,7 @@ class BertModel(BertPreTrainedModel):
         self.pooler = BertPooler(config)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concept_embeddings=None, output_all_encoded_layers=True):
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concept_embeddings=None, easy_concept=True, output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
         if token_type_ids is None:
@@ -816,6 +817,7 @@ class BertModel(BertPreTrainedModel):
         encoded_layers = self.encoder(embedding_output,
                                       extended_attention_mask,
                                       concept_embeddings,
+                                      easy_concept,
                                       output_all_encoded_layers=output_all_encoded_layers)
         sequence_output = encoded_layers[-1]
         pooled_output = self.pooler(sequence_output)
@@ -877,8 +879,8 @@ class BertForSequenceClassification(BertPreTrainedModel):
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concept_embeddings=None, labels=None):
-        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, concept_embeddings, output_all_encoded_layers=False)
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concept_embeddings=None, easy_concept=True, labels=None):
+        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, concept_embeddings, easy_concept, output_all_encoded_layers=False)
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
 

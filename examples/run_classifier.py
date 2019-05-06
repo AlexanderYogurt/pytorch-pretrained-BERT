@@ -147,7 +147,7 @@ class SnliProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "self_designed_test.tsv")),
+            self._read_tsv(os.path.join(data_dir, "advesarial_test.tsv")),
             "dev")
 
     def get_labels(self):
@@ -407,6 +407,9 @@ def main():
     parser.add_argument("--from_scratch",
                         action='store_true',
                         help="Whether to train model from scratch.")
+    parser.add_argument("--easy_concept",
+                        action='store_true',
+                        help="Whether to use easy concept method.")
     parser.add_argument("--print_out",
                         action='store_true',
                         help="Whether to print out all the eval examples.")
@@ -679,7 +682,7 @@ def main():
                     concept_embeddings = torch.tensor(concept_embeddings, dtype=torch.float32)
                     concept_embeddings = concept_embeddings.to(device)
 
-                loss = model(input_ids, segment_ids, input_mask, concept_embeddings, label_ids)
+                loss = model(input_ids, segment_ids, input_mask, concept_embeddings, args.easy_concept, label_ids)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.gradient_accumulation_steps > 1:
@@ -786,8 +789,8 @@ def main():
             label_ids = label_ids.to(device)
 
             with torch.no_grad():
-                tmp_eval_loss = model(input_ids, segment_ids, input_mask, concept_embeddings, label_ids)
-                logits = model(input_ids, segment_ids, input_mask, concept_embeddings)
+                tmp_eval_loss = model(input_ids, segment_ids, input_mask, concept_embeddings, args.easy_concept, label_ids)
+                logits = model(input_ids, segment_ids, input_mask, concept_embeddings, args.easy_concept)
 
             logits = logits.detach().cpu().numpy()
             label_ids = label_ids.to('cpu').numpy()
