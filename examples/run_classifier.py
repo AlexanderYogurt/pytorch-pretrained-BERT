@@ -147,7 +147,7 @@ class SnliProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "advesarial_test.tsv")),
+            self._read_tsv(os.path.join(data_dir, "self_designed_test.tsv")),
             "dev")
 
     def get_labels(self):
@@ -777,6 +777,8 @@ def main():
                                 break
                             if j >= i:
                                 if t in concept_dict and s in concept_dict[t]:
+                                    if args.print_out:
+                                        print("word 1 is {}, word 2 is {}\n".format(t, s))
                                     concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                     if flag and sum(concept_dict[t][s]) > 0:
                                         concept_count += 1
