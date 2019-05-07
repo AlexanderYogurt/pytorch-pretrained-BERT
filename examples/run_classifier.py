@@ -775,7 +775,7 @@ def main():
                         for j, s in enumerate(tokens):
                             if j >= meaningful_length:
                                 break
-                            if j >= i:
+                            if j >= i and t != s:
                                 if t in concept_dict and s in concept_dict[t]:
                                     if args.print_out and sum(concept_dict[t][s]) > 0:
                                         print("word 1 is {}, word 2 is {}, concept_dict is {}\n".format(t, s, concept_dict[t][s]))
