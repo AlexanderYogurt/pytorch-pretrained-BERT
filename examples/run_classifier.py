@@ -569,8 +569,18 @@ def main():
 
     # Prepare model
     if args.from_scratch:
-        print("\nTrain Bert from scratch...\n")
-        config = BertConfig(vocab_size_or_config_json_file=28996, num_concepts=args.num_concepts)
+        print("\nTrain small Bert from scratch...\n")
+        config = BertConfig(vocab_size_or_config_json_file=28996,
+                            hidden_size=512,
+                            num_hidden_layers=6,
+                            num_attention_heads=8,
+                            intermediate_size=2048,
+                            hidden_act="gelu",
+                            hidden_dropout_prob=0.1,
+                            attention_probs_dropout_prob=0.1,
+                            max_position_embeddings=512,
+                            type_vocab_size=2,
+                            num_concepts=args.num_concepts)
         model = BertForSequenceClassification(config, num_labels=num_labels)
     else:
         print("\nLoading pretrained Bert model {}\n".format(args.bert_model))
@@ -687,7 +697,7 @@ def main():
                                         concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                         if flag and sum(concept_dict[t][s]) > 0:
                                             concept_count += 1
-                                            if args.print_out and concept_count <= 10:
+                                            if args.print_out and concept_count <= 20:
                                                 print("word 1 is {}, word 2 is {}\n".format(t, s))
                                             flag = False
                                     if s in concept_dict and t in concept_dict[s]:
