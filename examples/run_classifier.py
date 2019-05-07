@@ -662,6 +662,7 @@ def main():
         for _ in trange(int(args.num_train_epochs), desc="Epoch"):
             tr_loss = 0
             nb_tr_examples, nb_tr_steps = 0, 0
+            concept_count = 0
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 batch = tuple(t.to(device) for t in batch)
                 input_ids, input_mask, segment_ids, label_ids = batch
@@ -670,15 +671,28 @@ def main():
                 else:
                     # concept relations
                     concept_embeddings = np.zeros((input_ids.size(0), args.max_seq_length, args.max_seq_length, args.num_concepts), dtype = np.float32) # [B, T, T, num_concepts]
+                    
                     for row_num, ids in enumerate(input_ids):
-
+                        meaningful_length = int(sum(input_mask[row_num]))
                         tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())
                         for i, t in enumerate(tokens):
+                            flag = True
+                            if i >= meaningful_length:
+                                break
                             for j, s in enumerate(tokens):
-                                if j >= i:
+                                if j >= meaningful_length:
+                                    break
+                                if j >= i and t != s:
                                     if t in concept_dict and s in concept_dict[t]:
                                         concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
-                                        concept_embeddings[row_num, j, i, :] = concept_dict[t][s]
+                                        if flag and sum(concept_dict[t][s]) > 0:
+                                            concept_count += 1
+                                            if args.print_out and concept_count <= 10:
+                                                print("word 1 is {}, word 2 is {}\n".format(t, s))
+                                            flag = False
+                                    if s in concept_dict and t in concept_dict[s]:
+                                        concept_embeddings[row_num, j, i, :] = concept_dict[s][t]
+
                     concept_embeddings = torch.tensor(concept_embeddings, dtype=torch.float32)
                     concept_embeddings = concept_embeddings.to(device)
 
@@ -706,6 +720,9 @@ def main():
                     optimizer.step()
                     optimizer.zero_grad()
                     global_step += 1
+
+            avg_concepts = concept_count / nb_tr_examples
+            print("\n The average number of concepts is {}\n".format(avg_concepts))
 
         # Save a trained model and the associated configuration
         model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
@@ -776,6 +793,7 @@ def main():
                             if j >= meaningful_length:
                                 break
                             if j >= i and t != s:
+                                # we only count two words as synonyms when they are different
                                 if t in concept_dict and s in concept_dict[t]:
                                     if args.print_out and sum(concept_dict[t][s]) > 0:
                                         print("word 1 is {}, word 2 is {}, concept_dict is {}\n".format(t, s, concept_dict[t][s]))
