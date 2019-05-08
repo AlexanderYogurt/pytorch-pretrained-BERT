@@ -147,7 +147,7 @@ class SnliProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "self_designed_test.tsv")),
+            self._read_tsv(os.path.join(data_dir, "advesarial_test.tsv")),
             "dev")
 
     def get_labels(self):
@@ -697,7 +697,7 @@ def main():
                                         concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                         if flag and sum(concept_dict[t][s]) > 0:
                                             concept_count += 1
-                                            if args.print_out and concept_count <= 20:
+                                            if concept_count <= 20:
                                                 print("word 1 is {}, word 2 is {}\n".format(t, s))
                                             flag = False
                                     if s in concept_dict and t in concept_dict[s]:
@@ -805,7 +805,7 @@ def main():
                             if j >= i and t != s:
                                 # we only count two words as synonyms when they are different
                                 if t in concept_dict and s in concept_dict[t]:
-                                    if args.print_out and sum(concept_dict[t][s]) > 0:
+                                    if concept_count <= 20 and sum(concept_dict[t][s]) > 0:
                                         print("word 1 is {}, word 2 is {}, concept_dict is {}\n".format(t, s, concept_dict[t][s]))
                                     concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                     if flag and sum(concept_dict[t][s]) > 0:
