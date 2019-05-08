@@ -692,13 +692,13 @@ def main():
                             for j, s in enumerate(tokens):
                                 if j >= meaningful_length:
                                     break
-                                if j >= i and t != s:
+                                if j > i and t != s and segment_ids[row_num][j] != segment_ids[row_num][i]:
                                     if t in concept_dict and s in concept_dict[t]:
                                         concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                         if flag and sum(concept_dict[t][s]) > 0:
                                             concept_count += 1
-                                            if concept_count <= 20:
-                                                print("word 1 is {}, word 2 is {}\n".format(t, s))
+                                            if concept_count <= 100:
+                                                print("word 1 is {}, word 2 is {}, concept is {}\n".format(t, s, concept_dict[t][s]))
                                             flag = False
                                     if s in concept_dict and t in concept_dict[s]:
                                         concept_embeddings[row_num, j, i, :] = concept_dict[s][t]
@@ -802,10 +802,10 @@ def main():
                         for j, s in enumerate(tokens):
                             if j >= meaningful_length:
                                 break
-                            if j >= i and t != s:
+                            if j > i and t != s and segment_ids[row_num][j] != segment_ids[row_num][i]:
                                 # we only count two words as synonyms when they are different
                                 if t in concept_dict and s in concept_dict[t]:
-                                    if concept_count <= 20 and sum(concept_dict[t][s]) > 0:
+                                    if concept_count <= 100:
                                         print("word 1 is {}, word 2 is {}, concept_dict is {}\n".format(t, s, concept_dict[t][s]))
                                     concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                     if flag and sum(concept_dict[t][s]) > 0:
