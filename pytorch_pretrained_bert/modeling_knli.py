@@ -293,6 +293,19 @@ class BertSelfAttention(nn.Module):
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
+        self.query_c = nn.Sequential(
+                            nn.Linear(config.hidden_size, 5),
+                            nn.Linear(5, self.all_head_size),
+                       )
+        self.key_c = nn.Sequential(
+                            nn.Linear(config.hidden_size, 5),
+                            nn.Linear(5, self.all_head_size),
+                       )
+        self.value_c = nn.Sequential(
+                            nn.Linear(config.hidden_size, 5),
+                            nn.Linear(5, self.all_head_size),
+                       )
+
         self.concept_h = nn.Sequential(
                             nn.Linear(config.hidden_size, 1),
                             nn.Sigmoid(),
@@ -376,9 +389,9 @@ class BertSelfAttention(nn.Module):
         # concept_embeddings: [B, T, T, num_concepts]
         # hidden_states: [B, T, D]
         # attention_mask: 
-        mixed_query_layer = self.query(hidden_states)
-        mixed_key_layer = self.key(hidden_states)
-        mixed_value_layer = self.value(hidden_states)
+        mixed_query_layer = self.query_c(hidden_states)
+        mixed_key_layer = self.key_c(hidden_states)
+        mixed_value_layer = self.value_c(hidden_states)
 
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
