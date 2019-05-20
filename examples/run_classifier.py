@@ -34,7 +34,7 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
-from pytorch_pretrained_bert.modeling_knli import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME
+from pytorch_pretrained_bert.modeling_mhse import BertForSequenceClassification, BertConfig, WEIGHTS_NAME, CONFIG_NAME
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 from pytorch_pretrained_bert.tokenization import BertTokenizer
 from pytorch_pretrained_bert.optimization import BertAdam, warmup_linear
@@ -312,16 +312,6 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
             tokens += tokens_b + ["[SEP]"]
             segment_ids += [1] * (len(tokens_b) + 1)
 
-        # # concept relations
-        # concept_embeddings = np.zeros((max_seq_length, max_seq_length, num_concepts), dtype = np.float32)
-        # if concept_dict is not None:
-        #     for i, t in enumerate(tokens):
-        #         for j, s in enumerate(tokens):
-        #             if j >= i:
-        #                 if t in concept_dict and s in concept_dict[t]:
-        #                     concept_embeddings[i, j, :] = concept_dict[t][s]
-        #                     concept_embeddings[j, i, :] = c(concept_embeddings[i, j, :])
-
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
         # The mask has 1 for real tokens and 0 for padding tokens. Only real
@@ -382,34 +372,34 @@ def accuracy(out, labels):
 def main():
     parser = argparse.ArgumentParser()
 
-    ## Required parameters
+    ## Primary parameters
     parser.add_argument("--data_dir",
-                        default=None,
+                        default='./data/SNLI',
                         type=str,
-                        required=True,
                         help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
-    parser.add_argument("--bert_model", default=None, type=str, required=True,
+    parser.add_argument("--bert_model",
+                        default='bert-base-cased',
+                        type=str,
                         help="Bert pre-trained model selected in the list: bert-base-uncased, "
                         "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
                         "bert-base-multilingual-cased, bert-base-chinese.")
     parser.add_argument("--task_name",
-                        default=None,
+                        default='SNLI',
                         type=str,
-                        required=True,
                         help="The name of the task to train.")
     parser.add_argument("--output_dir",
-                        default=None,
+                        default='./output',
                         type=str,
-                        required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")
 
     ## Other parameters
     parser.add_argument("--from_scratch",
                         action='store_true',
                         help="Whether to train model from scratch.")
-    parser.add_argument("--easy_concept",
-                        action='store_true',
-                        help="Whether to use easy concept method.")
+    parser.add_argument("--lambd",
+                        default=10.0,
+                        type=float,
+                        help="The magnitude of concept alignment.")
     parser.add_argument("--print_out",
                         action='store_true',
                         help="Whether to print out all the eval examples.")
@@ -461,7 +451,7 @@ def main():
                         type=float,
                         help="Total number of training epochs to perform.")
     parser.add_argument("--warmup_proportion",
-                        default=0.002,
+                        default=0.025,
                         type=float,
                         help="Proportion of training to perform linear learning rate warmup for. "
                              "E.g., 0.1 = 10%% of training.")
@@ -491,7 +481,7 @@ def main():
     parser.add_argument('--server_ip', type=str, default='', help="Can be used for distant debugging.")
     parser.add_argument('--server_port', type=str, default='', help="Can be used for distant debugging.")
     args = parser.parse_args()
-    
+
     if args.server_ip and args.server_port:
         # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
         import ptvsd
@@ -571,10 +561,10 @@ def main():
     if args.from_scratch:
         print("\nTrain small Bert from scratch...\n")
         config = BertConfig(vocab_size_or_config_json_file=28996,
-                            hidden_size=512,
-                            num_hidden_layers=6,
-                            num_attention_heads=8,
-                            intermediate_size=2048,
+                            hidden_size=300,
+                            num_hidden_layers=4,
+                            num_attention_heads=5,
+                            intermediate_size=1200,
                             hidden_act="gelu",
                             hidden_dropout_prob=0.1,
                             attention_probs_dropout_prob=0.1,
@@ -600,6 +590,19 @@ def main():
         model = DDP(model)
     elif n_gpu > 1:
         model = torch.nn.DataParallel(model)
+
+    # Count parameters
+    total_params = 0
+    total_params_trainable = 0
+
+    for i in model.parameters():
+        total_params += np.prod(i.size())
+        if (i.requires_grad == True):
+            total_params_trainable += np.prod(i.size())
+
+    print(model)
+    print("Total number of ALL parameters: %d" % total_params)
+    print("Total number of TRAINABLE parameters: %d" % total_params_trainable)
 
     # Prepare optimizer
     param_optimizer = list(model.named_parameters())
@@ -681,7 +684,7 @@ def main():
                 else:
                     # concept relations
                     concept_embeddings = np.zeros((input_ids.size(0), args.max_seq_length, args.max_seq_length, args.num_concepts), dtype = np.float32) # [B, T, T, num_concepts]
-                    
+
                     for row_num, ids in enumerate(input_ids):
                         meaningful_length = int(sum(input_mask[row_num]))
                         tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())
@@ -692,13 +695,14 @@ def main():
                             for j, s in enumerate(tokens):
                                 if j >= meaningful_length:
                                     break
-                                if j > i and t != s and segment_ids[row_num][j] != segment_ids[row_num][i]:
+                                # if j > i and segment_ids[row_num][j] != segment_ids[row_num][i]:
+                                if j > i:
                                     if t in concept_dict and s in concept_dict[t]:
                                         concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                         if flag and sum(concept_dict[t][s]) > 0:
                                             concept_count += 1
-                                            if concept_count <= 100:
-                                                print("word 1 is {}, word 2 is {}, concept is {}\n".format(t, s, concept_dict[t][s]))
+                                            if concept_count <= 20:
+                                                print("Sentence is {}, word 1 is {}, word 2 is {}, concept is {}\n".format(' '.join(tokens), t, s, concept_dict[t][s]))
                                             flag = False
                                     if s in concept_dict and t in concept_dict[s]:
                                         concept_embeddings[row_num, j, i, :] = concept_dict[s][t]
@@ -706,7 +710,7 @@ def main():
                     concept_embeddings = torch.tensor(concept_embeddings, dtype=torch.float32)
                     concept_embeddings = concept_embeddings.to(device)
 
-                loss = model(input_ids, segment_ids, input_mask, concept_embeddings, args.easy_concept, label_ids)
+                loss = model(input_ids, segment_ids, input_mask, concept_embeddings, args.lambd, label_ids)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.gradient_accumulation_steps > 1:
@@ -802,11 +806,11 @@ def main():
                         for j, s in enumerate(tokens):
                             if j >= meaningful_length:
                                 break
-                            if j > i and t != s and segment_ids[row_num][j] != segment_ids[row_num][i]:
+                            if j > i:
                                 # we only count two words as synonyms when they are different
                                 if t in concept_dict and s in concept_dict[t]:
-                                    if concept_count <= 100:
-                                        print("word 1 is {}, word 2 is {}, concept_dict is {}\n".format(t, s, concept_dict[t][s]))
+                                    if concept_count <= 20:
+                                        print("Sentence is {}, word 1 is {}, word 2 is {}, concept_dict is {}\n".format(' '.join(tokens), t, s, concept_dict[t][s]))
                                     concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                     if flag and sum(concept_dict[t][s]) > 0:
                                         concept_count += 1
@@ -819,8 +823,8 @@ def main():
             label_ids = label_ids.to(device)
 
             with torch.no_grad():
-                tmp_eval_loss = model(input_ids, segment_ids, input_mask, concept_embeddings, args.easy_concept, label_ids)
-                logits = model(input_ids, segment_ids, input_mask, concept_embeddings, args.easy_concept)
+                tmp_eval_loss = model(input_ids, segment_ids, input_mask, concept_embeddings, args.lambd, label_ids)
+                logits = model(input_ids, segment_ids, input_mask, concept_embeddings, args.lambd)
 
             logits = logits.detach().cpu().numpy()
             label_ids = label_ids.to('cpu').numpy()

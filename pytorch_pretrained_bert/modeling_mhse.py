@@ -266,18 +266,6 @@ class BertEmbeddings(nn.Module):
         embeddings = self.dropout(embeddings)
         return embeddings
 
-class ConceptEncoding(nn.Module):
-    "The concept encoding of hypernyms, hyponyms, and synonyms."
-    def __init__(self, d_model, num_concepts):
-        super(ConceptEncoding, self).__init__()
-        self.concept_embeddings = nn.Parameter(torch.zeros(num_concepts, d_model))
-        nn.init.normal_(self.concept_embeddings, 0.0, 0.02)
-    def _get_embedding(self):
-        return self.concept_embeddings
-    def forward(self, qa_relation):
-        "qa_relation: [B, T1, T2, num_concepts]"
-        return qa_relation.matmul(self.concept_embeddings) # [B, T1, T2, d_model]
-
 
 class BertSelfAttention(nn.Module):
     def __init__(self, config):
@@ -294,26 +282,6 @@ class BertSelfAttention(nn.Module):
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
-        self.query_c = nn.Sequential(
-                            nn.Linear(config.hidden_size, 5),
-                            nn.Linear(5, self.all_head_size),
-                       )
-        self.key_c = nn.Sequential(
-                            nn.Linear(config.hidden_size, 5),
-                            nn.Linear(5, self.all_head_size),
-                       )
-        self.value_c = nn.Sequential(
-                            nn.Linear(config.hidden_size, 5),
-                            nn.Linear(5, self.all_head_size),
-                       )
-
-        self.concept_h = nn.Sequential(
-                            nn.Linear(config.hidden_size, 1),
-                            nn.Sigmoid(),
-                         )
-
-        self.concept_encoding = ConceptEncoding(config.hidden_size, config.num_concepts)
-
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def transpose_for_scores(self, x):
@@ -321,112 +289,36 @@ class BertSelfAttention(nn.Module):
         x = x.view(*new_x_shape) # [B, T, H, d_k]
         return x.permute(0, 2, 1, 3) # [B, H, T, d_k]
 
-    def transpose_for_concepts(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
-        x = x.view(*new_x_shape) # [B, T, T, H, d_k]
-        return x.permute(0, 3, 1, 2, 4) # [B, H, T, T, d_k]
-
-    def concept_attention(self, query, key, value, hQ, attention_mask):
-        '''
-         Compute concept augmented dot product
-         query, key, value: [B, H, T, d_k]
-         h: [B, H, T, T, d_k]
-         mask: [B, 1, 1, T]
-        '''
-        b_size, heads, T, d_k = query.size()
-
-        # implementation: direct addition
-        # (q + hQ) * (k + hK)
-        q = query.unsqueeze(3) # [B, H, T, 1, d_k]
-        q_plus_hQ = q + hQ # [B, H, T, T, d_k]
-        k = key.unsqueeze(2) # [B, H, 1, T, d_k]
-        attention_scores = torch.sum(q_plus_hQ * k, dim=-1, keepdim=False) / math.sqrt(self.attention_head_size)# [B, H, T, T]
-
-        # add mask
-        attention_scores = attention_scores + attention_mask # [B, H, T, T]
-        attention_probs = nn.Softmax(dim=-1)(attention_scores) # [B, H, T, T]
-
-        # apply dropout
-        attention_probs = self.dropout(attention_probs)
-
-        context_layer = torch.matmul(attention_probs, value) # [B, H, T, d_k]
-
-        return context_layer
-
-    def easy_concept_attention(self, query, key, value, concept_embeddings, attention_mask):
-        '''
-         Compute concept augmented dot product
-         query, key, value: [B, H, T, d_k]
-         concept_embeddings: [B, T, T, D]
-         mask: [B, 1, 1, T]
-        '''
-        b_size, heads, T, d_k = query.size()
-
-        # calculate vanilla attention scores
-        attention_scores = torch.matmul(query, key.transpose(-1, -2)) # [B, H, T, T]
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size) # [B, H, T, T]
-
-        # add concept embedding function
-        concept_scores = self.concept_h(concept_embeddings).squeeze(-1).unsqueeze(1) # [B, 1, T, T]
-
-        # update attention (same updates for all the heads)
-        attention_scores = attention_scores + concept_scores # [B, H, T, T]
-
-        # apply mask
-        attention_scores = attention_scores + attention_mask # [B, H, T, T]
-
-        # Normalize the attention scores to probabilities.
-        attention_probs = nn.Softmax(dim=-1)(attention_scores) # [B, H, T, T]
-
-        # apply dropout
-        attention_probs = self.dropout(attention_probs)
-
-        # final output
-        context_layer = torch.matmul(attention_probs, value) # [B, H, T, d_k]
-
-        return context_layer
-
-    def forward(self, hidden_states, attention_mask, concept_embeddings, easy_concept):
-        # concept_embeddings: [B, T, T, num_concepts]
+    def forward(self, hidden_states, attention_mask, concepts, lambd = 10.0):
+        # concepts: [B, T, T, num_concepts]
         # hidden_states: [B, T, D]
-        # attention_mask:
-        mixed_query_layer = self.query_c(hidden_states)
-        mixed_key_layer = self.key_c(hidden_states)
-        mixed_value_layer = self.value_c(hidden_states)
+
+        mixed_query_layer = self.query(hidden_states)
+        mixed_key_layer = self.key(hidden_states)
+        mixed_value_layer = self.value(hidden_states)
 
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
 
-        if concept_embeddings is not None:
+        # Take the dot product between "query" and "key" to get the raw attention scores.
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-            # apply self-attention with concept embeddings
-            if easy_concept:
-                # add easy concept embedding
-                concept_embeddings = self.concept_encoding(concept_embeddings) # [B, T, T, D]
-                context_layer = self.easy_concept_attention(query_layer, key_layer, value_layer, concept_embeddings, attention_mask)
-            else:
-                # add concept embedding
-                concept_embeddings = self.concept_encoding(concept_embeddings) # [B, T, T, D]
-                # multi-head
-                mixed_hQ_layer = self.query(concept_embeddings)
-                hQ_layer = self.transpose_for_concepts(mixed_hQ_layer)
-                context_layer = self.concept_attention(query_layer, key_layer, value_layer, hQ_layer, attention_mask)
-        else:
-            # Take the dot product between "query" and "key" to get the raw attention scores.
-            attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
-            attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-            # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
-            attention_scores = attention_scores + attention_mask
+        # Add the concept information to the first 5 heads
+        attention_scores[:, :5, :, :] = attention_scores[:, :5, :, :] + lambd * concepts.permute(0, 3, 1, 2) # [B, H, T, T]
 
-            # Normalize the attention scores to probabilities.
-            attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
+        attention_scores = attention_scores + attention_mask
 
-            # This is actually dropping out entire tokens to attend to, which might
-            # seem a bit unusual, but is taken from the original Transformer paper.
-            attention_probs = self.dropout(attention_probs)
+        # Normalize the attention scores to probabilities.
+        attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
-            context_layer = torch.matmul(attention_probs, value_layer)
+        # This is actually dropping out entire tokens to attend to, which might
+        # seem a bit unusual, but is taken from the original Transformer paper.
+        attention_probs = self.dropout(attention_probs)
+
+        context_layer = torch.matmul(attention_probs, value_layer)
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous() # [B, T, H, d_k]
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
@@ -454,8 +346,8 @@ class BertAttention(nn.Module):
         self.self = BertSelfAttention(config)
         self.output = BertSelfOutput(config)
 
-    def forward(self, input_tensor, attention_mask, concept_embeddings, easy_concept):
-        self_output = self.self(input_tensor, attention_mask, concept_embeddings, easy_concept)
+    def forward(self, input_tensor, attention_mask, concepts, lambd=10.0):
+        self_output = self.self(input_tensor, attention_mask, concepts, lambd)
         attention_output = self.output(self_output, input_tensor)
         return attention_output
 
@@ -496,8 +388,8 @@ class BertLayer(nn.Module):
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
 
-    def forward(self, hidden_states, attention_mask, concept_embeddings, easy_concept):
-        attention_output = self.attention(hidden_states, attention_mask, concept_embeddings, easy_concept)
+    def forward(self, hidden_states, attention_mask, concepts, lambd=10.0):
+        attention_output = self.attention(hidden_states, attention_mask, concepts, lambd)
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
@@ -509,10 +401,10 @@ class BertEncoder(nn.Module):
         layer = BertLayer(config)
         self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask, concept_embeddings, easy_concept, output_all_encoded_layers=True):
+    def forward(self, hidden_states, attention_mask, concepts, lambd=10.0, output_all_encoded_layers=True):
         all_encoder_layers = []
         for layer_module in self.layer:
-            hidden_states = layer_module(hidden_states, attention_mask, concept_embeddings, easy_concept)
+            hidden_states = layer_module(hidden_states, attention_mask, concepts, lambd)
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
         if not output_all_encoded_layers:
@@ -806,7 +698,7 @@ class BertModel(BertPreTrainedModel):
         self.pooler = BertPooler(config)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concept_embeddings=None, easy_concept=True, output_all_encoded_layers=True):
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concepts=None, lambd=10.0, output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
         if token_type_ids is None:
@@ -830,8 +722,8 @@ class BertModel(BertPreTrainedModel):
         embedding_output = self.embeddings(input_ids, token_type_ids)
         encoded_layers = self.encoder(embedding_output,
                                       extended_attention_mask,
-                                      concept_embeddings,
-                                      easy_concept,
+                                      concepts,
+                                      lambd,
                                       output_all_encoded_layers=output_all_encoded_layers)
         sequence_output = encoded_layers[-1]
         pooled_output = self.pooler(sequence_output)
@@ -893,8 +785,8 @@ class BertForSequenceClassification(BertPreTrainedModel):
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concept_embeddings=None, easy_concept=True, labels=None):
-        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, concept_embeddings, easy_concept, output_all_encoded_layers=False)
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concepts=None, lambd=10.0, labels=None):
+        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, concepts, lambd, output_all_encoded_layers=False)
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
 
