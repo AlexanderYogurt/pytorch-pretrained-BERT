@@ -562,9 +562,9 @@ def main():
         print("\nTrain small Bert from scratch...\n")
         config = BertConfig(vocab_size_or_config_json_file=28996,
                             hidden_size=300,
-                            num_hidden_layers=4,
+                            num_hidden_layers=3,
                             num_attention_heads=5,
-                            intermediate_size=1200,
+                            intermediate_size=512,
                             hidden_act="gelu",
                             hidden_dropout_prob=0.1,
                             attention_probs_dropout_prob=0.1,
@@ -695,8 +695,8 @@ def main():
                             for j, s in enumerate(tokens):
                                 if j >= meaningful_length:
                                     break
-                                # if j > i and segment_ids[row_num][j] != segment_ids[row_num][i]:
-                                if j > i:
+                                if j > i and segment_ids[row_num][j] != segment_ids[row_num][i]:
+                                # if j > i:
                                     if t in concept_dict and s in concept_dict[t]:
                                         concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                         if flag and sum(concept_dict[t][s]) > 0:
@@ -806,20 +806,20 @@ def main():
                         for j, s in enumerate(tokens):
                             if j >= meaningful_length:
                                 break
-                            if j > i:
-                                # we only count two words as synonyms when they are different
+                            if j > i and segment_ids[row_num][j] != segment_ids[row_num][i]:
                                 if t in concept_dict and s in concept_dict[t]:
-                                    if concept_count <= 20:
-                                        print("Sentence is {}, word 1 is {}, word 2 is {}, concept_dict is {}\n".format(' '.join(tokens), t, s, concept_dict[t][s]))
                                     concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                     if flag and sum(concept_dict[t][s]) > 0:
                                         concept_count += 1
+                                        if concept_count <= 20:
+                                            print("Sentence is {}, word 1 is {}, word 2 is {}, concept_dict is {}\n".format(' '.join(tokens), t, s, concept_dict[t][s]))
                                         flag = False
                                 if s in concept_dict and t in concept_dict[s]:
                                     concept_embeddings[row_num, j, i, :] = concept_dict[s][t]
 
                 concept_embeddings = torch.tensor(concept_embeddings, dtype=torch.float32)
                 concept_embeddings = concept_embeddings.to(device)
+
             label_ids = label_ids.to(device)
 
             with torch.no_grad():
