@@ -312,11 +312,15 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
             tokens += tokens_b + ["[SEP]"]
             segment_ids += [1] * (len(tokens_b) + 1)
 
-        input_ids = tokenizer.convert_tokens_to_ids(tokens)
+        input_ids = tokenizer.convert_tokens_to_ids(tokens) # list of ids
+        # e.g. [101, 138, 1825, 1113, 170, 3241, 15457, 1166, 170, 3088, 1205, 15478, 119, 102]
 
         # The mask has 1 for real tokens and 0 for padding tokens. Only real
         # tokens are attended to.
         input_mask = [1] * len(input_ids)
+
+        # Calculate lexical relation vectors
+
 
         # Zero-pad up to the sequence length.
         padding = [0] * (max_seq_length - len(input_ids))
@@ -447,11 +451,11 @@ def main():
                         type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument("--num_train_epochs",
-                        default=3.0,
+                        default=5.0,
                         type=float,
                         help="Total number of training epochs to perform.")
     parser.add_argument("--warmup_proportion",
-                        default=0.025,
+                        default=0.05,
                         type=float,
                         help="Proportion of training to perform linear learning rate warmup for. "
                              "E.g., 0.1 = 10%% of training.")
@@ -562,7 +566,7 @@ def main():
         print("\nTrain small Bert from scratch...\n")
         config = BertConfig(vocab_size_or_config_json_file=28996,
                             hidden_size=300,
-                            num_hidden_layers=3,
+                            num_hidden_layers=4,
                             num_attention_heads=5,
                             intermediate_size=512,
                             hidden_act="gelu",
@@ -665,6 +669,9 @@ def main():
         all_segment_ids = torch.tensor([f.segment_ids for f in tqdm(train_features, desc='segment_ids')], dtype=torch.long)
         all_label_ids = torch.tensor([f.label_id for f in tqdm(train_features, desc='label')], dtype=torch.long)
         train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+
+        pdb.set_trace()
+
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_data)
         else:
@@ -701,7 +708,7 @@ def main():
                                         concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                         if flag and sum(concept_dict[t][s]) > 0:
                                             concept_count += 1
-                                            if concept_count <= 20:
+                                            if concept_count <= 5:
                                                 print("Sentence is {}, word 1 is {}, word 2 is {}, concept is {}\n".format(' '.join(tokens), t, s, concept_dict[t][s]))
                                             flag = False
                                     if s in concept_dict and t in concept_dict[s]:
@@ -811,7 +818,7 @@ def main():
                                     concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
                                     if flag and sum(concept_dict[t][s]) > 0:
                                         concept_count += 1
-                                        if concept_count <= 20:
+                                        if concept_count <= 5:
                                             print("Sentence is {}, word 1 is {}, word 2 is {}, concept_dict is {}\n".format(' '.join(tokens), t, s, concept_dict[t][s]))
                                         flag = False
                                 if s in concept_dict and t in concept_dict[s]:
