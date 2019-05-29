@@ -147,7 +147,7 @@ class SnliProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "advesarial_test.tsv")),
+            self._read_tsv(os.path.join(data_dir, "test.tsv")),
             "dev")
 
     def get_labels(self):
@@ -188,6 +188,57 @@ class MnliProcessor(DataProcessor):
         return ["contradiction", "entailment", "neutral"]
 
     def _create_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, line[0])
+            text_a = line[8]
+            text_b = line[9]
+            label = line[-1]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        return examples
+
+
+class SnliMnliProcessor(DataProcessor):
+    """Processor for both the SNLI and MultiNLI data set (GLUE version)."""
+
+    def get_train_examples(self, snli_data_dir, mnli_data_dir):
+        """See base class."""
+        snli_examples = self._create_snli_examples(
+            self._read_tsv(os.path.join(snli_data_dir, "train.tsv")), "train_snli")
+        mnli_examples = self._create_mnli_examples(
+            self._read_tsv(os.path.join(mnli_data_dir, "train.tsv")), "train_mnli")
+
+        return snli_examples + mnli_examples
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_tsv(os.path.join(data_dir, "dev_matched.tsv")),
+            "dev_matched")
+
+    def get_labels(self):
+        """See base class."""
+        return ["contradiction", "entailment", "neutral"]
+
+    def _create_snli_examples(self, lines, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        for (i, line) in enumerate(lines):
+            if i == 0:
+                continue
+            guid = "%s-%s" % (set_type, line[0])
+            text_a = line[7]
+            text_b = line[8]
+            label = line[-1]
+            examples.append(
+                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+        return examples
+
+    def _create_mnli_examples(self, lines, set_type):
         """Creates examples for the training and dev sets."""
         examples = []
         for (i, line) in enumerate(lines):
@@ -401,7 +452,7 @@ def main():
                         action='store_true',
                         help="Whether to train model from scratch.")
     parser.add_argument("--lambd",
-                        default=10.0,
+                        default=100.0,
                         type=float,
                         help="The magnitude of concept alignment.")
     parser.add_argument("--print_out",
@@ -415,6 +466,10 @@ def main():
                         default="./data/pair_features_binary.pkl",
                         type=str,
                         help="Where you store the wordnet concept dictionary")
+    parser.add_argument("--concept_layers",
+                        default='-1',
+                        type=str,
+                        help="The index of layers to add concept structured embeddings.")
     parser.add_argument("--cache_dir",
                         default="",
                         type=str,
@@ -439,7 +494,7 @@ def main():
                         action='store_true',
                         help="Set this flag if you are using an uncased model.")
     parser.add_argument("--train_batch_size",
-                        default=8,
+                        default=32,
                         type=int,
                         help="Total batch size for training.")
     parser.add_argument("--eval_batch_size",
@@ -447,7 +502,7 @@ def main():
                         type=int,
                         help="Total batch size for eval.")
     parser.add_argument("--learning_rate",
-                        default=6.25e-5,
+                        default=1e-4,
                         type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument("--num_train_epochs",
@@ -455,7 +510,7 @@ def main():
                         type=float,
                         help="Total number of training epochs to perform.")
     parser.add_argument("--warmup_proportion",
-                        default=0.05,
+                        default=0.01,
                         type=float,
                         help="Proportion of training to perform linear learning rate warmup for. "
                              "E.g., 0.1 = 10%% of training.")
@@ -468,7 +523,7 @@ def main():
                         help="local_rank for distributed training on gpus")
     parser.add_argument('--seed',
                         type=int,
-                        default=42,
+                        default=822,
                         help="random seed for initialization")
     parser.add_argument('--gradient_accumulation_steps',
                         type=int,
@@ -497,6 +552,7 @@ def main():
         "cola": ColaProcessor,
         "snli": SnliProcessor,
         "mnli": MnliProcessor,
+        "snli_mnli": SnliMnliProcessor,
         "mrpc": MrpcProcessor,
         "sst-2": Sst2Processor,
     }
@@ -506,6 +562,7 @@ def main():
         "sst-2": 2,
         "snli": 3,
         "mnli": 3,
+        "snli_mnli": 3,
         "mrpc": 2,
     }
 
@@ -552,10 +609,16 @@ def main():
 
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
+    data_dir = args.data_dir.split(',')
+
     train_examples = None
     num_train_optimization_steps = None
     if args.do_train:
-        train_examples = processor.get_train_examples(args.data_dir)
+        if len(data_dir) == 1:
+            train_examples = processor.get_train_examples(data_dir[0])
+        elif len(data_dir) == 2:
+            train_examples = processor.get_train_examples(data_dir[0], data_dir[1])
+
         num_train_optimization_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps) * args.num_train_epochs
         if args.local_rank != -1:
@@ -566,7 +629,7 @@ def main():
         print("\nTrain small Bert from scratch...\n")
         config = BertConfig(vocab_size_or_config_json_file=28996,
                             hidden_size=300,
-                            num_hidden_layers=4,
+                            num_hidden_layers=3,
                             num_attention_heads=5,
                             intermediate_size=512,
                             hidden_act="gelu",
@@ -649,8 +712,11 @@ def main():
                           num_concepts has been changed to {} instead.\n".format(tmp))
             args.num_concepts = tmp
     else:
-        print("\n------------------Not using concept embeddings------------------")
+        print("\n------------------Not using concept embeddings------------------\n")
         concept_dict = None
+
+    concept_layers = [int(i) for i in args.concept_layers.split(',')]
+    print("\n------------------Adding external knowledge to layers {}------------------\n".format(concept_layers))
 
     global_step = 0
     nb_tr_steps = 0
@@ -669,8 +735,6 @@ def main():
         all_segment_ids = torch.tensor([f.segment_ids for f in tqdm(train_features, desc='segment_ids')], dtype=torch.long)
         all_label_ids = torch.tensor([f.label_id for f in tqdm(train_features, desc='label')], dtype=torch.long)
         train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
-
-        pdb.set_trace()
 
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_data)
@@ -694,30 +758,33 @@ def main():
 
                     for row_num, ids in enumerate(input_ids):
                         meaningful_length = int(sum(input_mask[row_num]))
-                        tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())
-                        for i, t in enumerate(tokens):
+                        tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())[:meaningful_length] # meaningful tokens
+                        alength = sum(segment_ids[row_num])
+                        qlength = meaningful_length - alength
+                        query = tokens[:qlength]
+                        if alength > 0:
+                            answer = tokens[qlength:]
+                        else:
+                            answer = []
+
+                        for i, t in enumerate(query):
                             flag = True
-                            if i >= meaningful_length:
-                                break
-                            for j, s in enumerate(tokens):
-                                if j >= meaningful_length:
-                                    break
-                                if j > i and segment_ids[row_num][j] != segment_ids[row_num][i]:
-                                # if j > i:
-                                    if t in concept_dict and s in concept_dict[t]:
-                                        concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
-                                        if flag and sum(concept_dict[t][s]) > 0:
-                                            concept_count += 1
-                                            if concept_count <= 5:
-                                                print("Sentence is {}, word 1 is {}, word 2 is {}, concept is {}\n".format(' '.join(tokens), t, s, concept_dict[t][s]))
-                                            flag = False
-                                    if s in concept_dict and t in concept_dict[s]:
-                                        concept_embeddings[row_num, j, i, :] = concept_dict[s][t]
+                            for j, s in enumerate(answer):
+
+                                if t in concept_dict and s in concept_dict[t]:
+                                    concept_embeddings[row_num, i, j+qlength, :] = concept_dict[t][s]
+                                    if flag and sum(concept_dict[t][s]) > 0:
+                                        concept_count += 1
+                                        if concept_count <= 20:
+                                            print("Sentence is {}, word 1 is {}, word 2 is {}, concept is {}\n".format(' '.join(tokens), t, s, concept_dict[t][s]))
+                                        flag = False
+                                if s in concept_dict and t in concept_dict[s]:
+                                    concept_embeddings[row_num, j+qlength, i, :] = concept_dict[s][t]
 
                     concept_embeddings = torch.tensor(concept_embeddings, dtype=torch.float32)
                     concept_embeddings = concept_embeddings.to(device)
 
-                loss = model(input_ids, segment_ids, input_mask, concept_embeddings, args.lambd, label_ids)
+                loss = model(input_ids, segment_ids, input_mask, concept_embeddings, args.lambd, concept_layers, label_ids)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.gradient_accumulation_steps > 1:
@@ -772,7 +839,11 @@ def main():
     model.to(device)
 
     if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
-        eval_examples = processor.get_dev_examples(args.data_dir)
+        if len(data_dir) == 1:
+            eval_examples = processor.get_dev_examples(data_dir[0])
+        else:
+            eval_examples = processor.get_dev_examples(data_dir[1]) # mnli
+
         eval_features = convert_examples_to_features(
             eval_examples, label_list, args.max_seq_length, tokenizer)
         logger.info("***** Running evaluation *****")
@@ -805,24 +876,28 @@ def main():
 
                 for row_num, ids in enumerate(input_ids):
                     meaningful_length = int(sum(input_mask[row_num]))
-                    tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())
-                    for i, t in enumerate(tokens):
+                    tokens = tokenizer.convert_ids_to_tokens(ids.cpu().numpy())[:meaningful_length] # meaningful tokens
+                    alength = sum(segment_ids[row_num])
+                    qlength = meaningful_length - alength
+                    query = tokens[:qlength]
+                    if alength > 0:
+                        answer = tokens[qlength:]
+                    else:
+                        answer = []
+
+                    for i, t in enumerate(query):
                         flag = True
-                        if i >= meaningful_length:
-                            break
-                        for j, s in enumerate(tokens):
-                            if j >= meaningful_length:
-                                break
-                            if j > i and segment_ids[row_num][j] != segment_ids[row_num][i]:
-                                if t in concept_dict and s in concept_dict[t]:
-                                    concept_embeddings[row_num, i, j, :] = concept_dict[t][s]
-                                    if flag and sum(concept_dict[t][s]) > 0:
-                                        concept_count += 1
-                                        if concept_count <= 5:
-                                            print("Sentence is {}, word 1 is {}, word 2 is {}, concept_dict is {}\n".format(' '.join(tokens), t, s, concept_dict[t][s]))
-                                        flag = False
-                                if s in concept_dict and t in concept_dict[s]:
-                                    concept_embeddings[row_num, j, i, :] = concept_dict[s][t]
+                        for j, s in enumerate(answer):
+
+                            if t in concept_dict and s in concept_dict[t]:
+                                concept_embeddings[row_num, i, j+qlength, :] = concept_dict[t][s]
+                                if flag and sum(concept_dict[t][s]) > 0:
+                                    concept_count += 1
+                                    if concept_count <= 20:
+                                        print("Sentence is {}, word 1 is {}, word 2 is {}, concept is {}\n".format(' '.join(tokens), t, s, concept_dict[t][s]))
+                                    flag = False
+                            if s in concept_dict and t in concept_dict[s]:
+                                concept_embeddings[row_num, j+qlength, i, :] = concept_dict[s][t]
 
                 concept_embeddings = torch.tensor(concept_embeddings, dtype=torch.float32)
                 concept_embeddings = concept_embeddings.to(device)
@@ -830,8 +905,8 @@ def main():
             label_ids = label_ids.to(device)
 
             with torch.no_grad():
-                tmp_eval_loss = model(input_ids, segment_ids, input_mask, concept_embeddings, args.lambd, label_ids)
-                logits = model(input_ids, segment_ids, input_mask, concept_embeddings, args.lambd)
+                tmp_eval_loss = model(input_ids, segment_ids, input_mask, concept_embeddings, args.lambd, concept_layers, label_ids)
+                logits = model(input_ids, segment_ids, input_mask, concept_embeddings, args.lambd, concept_layers)
 
             logits = logits.detach().cpu().numpy()
             label_ids = label_ids.to('cpu').numpy()
@@ -851,20 +926,23 @@ def main():
 
         eval_loss = eval_loss / nb_eval_steps
         eval_accuracy = eval_accuracy / nb_eval_examples
-        from sklearn.metrics import precision_score
-        precision_of_each_class = precision_score(eval_labels, eval_outputs, average=None)
+        from sklearn.metrics import precision_score, recall_score
+        precision_of_each_class = precision_score(eval_labels, eval_outputs, labels=[0,1,2], average=None)
+        recall_of_each_class    = recall_score(eval_labels, eval_outputs, labels=[0,1,2], average=None)
         loss = tr_loss/nb_tr_steps if args.do_train else None
         avg_concepts = concept_count / nb_eval_examples
         result = {'eval_loss': eval_loss,
                   'eval_accuracy': eval_accuracy,
                   'precision_of_each_class': precision_of_each_class,
+                  'recall_of_each_class': recall_of_each_class,
                   'global_step': global_step,
                   'loss': loss,
                   'avg_concepts': avg_concepts}
 
-        output_eval_file = os.path.join(args.output_dir, "eval_results.txt")
+        output_eval_file = os.path.join(args.output_dir, args.task_name + '_' + args.description + "_eval_results.txt")
         with open(output_eval_file, "w") as writer:
             logger.info("***** Eval results *****")
+            logger.info("Total number of TRAINABLE parameters: %s" % str(total_params_trainable))
             for key in sorted(result.keys()):
                 logger.info("  %s = %s", key, str(result[key]))
                 writer.write("%s = %s\n" % (key, str(result[key])))

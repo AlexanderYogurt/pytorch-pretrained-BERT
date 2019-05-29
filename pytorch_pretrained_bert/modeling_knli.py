@@ -266,17 +266,17 @@ class BertEmbeddings(nn.Module):
         embeddings = self.dropout(embeddings)
         return embeddings
 
-class ConceptEncoding(nn.Module):
-    "The concept encoding of hypernyms, hyponyms, and synonyms."
-    def __init__(self, d_model, num_concepts):
-        super(ConceptEncoding, self).__init__()
-        self.concept_embeddings = nn.Parameter(torch.zeros(num_concepts, d_model))
-        nn.init.normal_(self.concept_embeddings, 0.0, 0.02)
-    def _get_embedding(self):
-        return self.concept_embeddings
-    def forward(self, qa_relation):
-        "qa_relation: [B, T1, T2, num_concepts]"
-        return qa_relation.matmul(self.concept_embeddings) # [B, T1, T2, d_model]
+# class ConceptEncoding(nn.Module):
+#     "The concept encoding of hypernyms, hyponyms, and synonyms."
+#     def __init__(self, d_model, num_concepts):
+#         super(ConceptEncoding, self).__init__()
+#         self.concept_embeddings = nn.Parameter(torch.zeros(num_concepts, d_model))
+#         nn.init.normal_(self.concept_embeddings, 0.0, 0.02)
+#     def _get_embedding(self):
+#         return self.concept_embeddings
+#     def forward(self, qa_relation):
+#         "qa_relation: [B, T1, T2, num_concepts]"
+#         return qa_relation.matmul(self.concept_embeddings) # [B, T1, T2, d_model]
 
 
 class BertSelfAttention(nn.Module):

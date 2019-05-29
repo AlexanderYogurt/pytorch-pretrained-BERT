@@ -35,6 +35,8 @@ from torch.nn import CrossEntropyLoss
 
 from .file_utils import cached_path
 
+import pdb
+
 logger = logging.getLogger(__name__)
 
 PRETRAINED_MODEL_ARCHIVE_MAP = {
@@ -289,7 +291,7 @@ class BertSelfAttention(nn.Module):
         x = x.view(*new_x_shape) # [B, T, H, d_k]
         return x.permute(0, 2, 1, 3) # [B, H, T, d_k]
 
-    def forward(self, hidden_states, attention_mask, concepts, lambd = 10.0):
+    def forward(self, hidden_states, attention_mask, concepts, lambd = 100.0):
         # concepts: [B, T, T, num_concepts]
         # hidden_states: [B, T, D]
 
@@ -306,7 +308,8 @@ class BertSelfAttention(nn.Module):
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
         # Add the concept information to the first 5 heads
-        attention_scores[:, :5, :, :] = attention_scores[:, :5, :, :] + lambd * concepts.permute(0, 3, 1, 2) # [B, H, T, T]
+        if lambd > 0 and concepts is not None:
+            attention_scores[:, :5, :, :] = attention_scores[:, :5, :, :] + lambd * concepts.permute(0, 3, 1, 2) # [B, H, T, T]
 
         # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
         attention_scores = attention_scores + attention_mask
@@ -401,9 +404,11 @@ class BertEncoder(nn.Module):
         layer = BertLayer(config)
         self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask, concepts, lambd=10.0, output_all_encoded_layers=True):
+    def forward(self, hidden_states, attention_mask, concepts, lambd=10.0, concept_layers=[-1], output_all_encoded_layers=True):
         all_encoder_layers = []
-        for layer_module in self.layer:
+        for i, layer_module in enumerate(self.layer):
+            if i not in concept_layers:
+                lambd = 0.0
             hidden_states = layer_module(hidden_states, attention_mask, concepts, lambd)
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
@@ -698,7 +703,7 @@ class BertModel(BertPreTrainedModel):
         self.pooler = BertPooler(config)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concepts=None, lambd=10.0, output_all_encoded_layers=True):
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concepts=None, lambd=10.0, concept_layers=[-1], output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
         if token_type_ids is None:
@@ -724,6 +729,7 @@ class BertModel(BertPreTrainedModel):
                                       extended_attention_mask,
                                       concepts,
                                       lambd,
+                                      concept_layers,
                                       output_all_encoded_layers=output_all_encoded_layers)
         sequence_output = encoded_layers[-1]
         pooled_output = self.pooler(sequence_output)
@@ -785,8 +791,8 @@ class BertForSequenceClassification(BertPreTrainedModel):
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concepts=None, lambd=10.0, labels=None):
-        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, concepts, lambd, output_all_encoded_layers=False)
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, concepts=None, lambd=10.0, concept_layers=[-1], labels=None):
+        _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, concepts, lambd, concept_layers, output_all_encoded_layers=False)
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
 
