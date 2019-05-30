@@ -452,7 +452,7 @@ def main():
                         action='store_true',
                         help="Whether to train model from scratch.")
     parser.add_argument("--lambd",
-                        default=100.0,
+                        default=50.0,
                         type=float,
                         help="The magnitude of concept alignment.")
     parser.add_argument("--print_out",
@@ -502,7 +502,7 @@ def main():
                         type=int,
                         help="Total batch size for eval.")
     parser.add_argument("--learning_rate",
-                        default=1e-4,
+                        default=5e-5,
                         type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument("--num_train_epochs",
@@ -510,7 +510,7 @@ def main():
                         type=float,
                         help="Total number of training epochs to perform.")
     parser.add_argument("--warmup_proportion",
-                        default=0.01,
+                        default=0.1,
                         type=float,
                         help="Proportion of training to perform linear learning rate warmup for. "
                              "E.g., 0.1 = 10%% of training.")
