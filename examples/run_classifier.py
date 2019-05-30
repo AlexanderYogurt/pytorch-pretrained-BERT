@@ -147,7 +147,7 @@ class SnliProcessor(DataProcessor):
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "test.tsv")),
+            self._read_tsv(os.path.join(data_dir, "advesarial_test.tsv")),
             "dev")
 
     def get_labels(self):
@@ -216,8 +216,8 @@ class SnliMnliProcessor(DataProcessor):
 
     def get_dev_examples(self, data_dir):
         """See base class."""
-        return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "dev_matched.tsv")),
+        return self._create_snli_examples(
+            self._read_tsv(os.path.join(data_dir, "advesarial_test.tsv")),
             "dev_matched")
 
     def get_labels(self):
@@ -629,9 +629,9 @@ def main():
         print("\nTrain small Bert from scratch...\n")
         config = BertConfig(vocab_size_or_config_json_file=28996,
                             hidden_size=300,
-                            num_hidden_layers=3,
+                            num_hidden_layers=4,
                             num_attention_heads=5,
-                            intermediate_size=512,
+                            intermediate_size=1200,
                             hidden_act="gelu",
                             hidden_dropout_prob=0.1,
                             attention_probs_dropout_prob=0.1,

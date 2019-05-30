@@ -408,8 +408,9 @@ class BertEncoder(nn.Module):
         all_encoder_layers = []
         for i, layer_module in enumerate(self.layer):
             if i not in concept_layers:
-                lambd = 0.0
-            hidden_states = layer_module(hidden_states, attention_mask, concepts, lambd)
+                hidden_states = layer_module(hidden_states, attention_mask, concepts, 0.0)
+            else:
+                hidden_states = layer_module(hidden_states, attention_mask, concepts, lambd)
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
         if not output_all_encoded_layers:
